@@ -18,18 +18,28 @@ os.makedirs(OUT, exist_ok=True)
 
 SR = 24000
 API = 'https://generativelanguage.googleapis.com/v1beta'
-STATIC_CANDS = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts']
+# اولویت: مدل‌های نسل ۳ (سهمیه بهتر) → نسل ۲.۵
+PREFERRED = ['gemini-3.8-flash-tts', 'gemini-3.1-flash-tts-preview',
+             'gemini-2.5-flash-preview-tts', 'gemini-3.8-flash-lite-tts',
+             'gemini-2.5-pro-preview-tts']
 PROBE_TEXT = 'این یک پیام آزمایشی برای بررسی کیفیت صدای پادکست است.'
 READER_PREFIX = 'این متن را دقیقا بخوان:\n'
+CHUNK_SLEEP = 3.5          # احترام به سهمیه RPM
+MAX_WORDS = 22             # جمله‌های بلندتر = درخواست کمتر
+
+# مدل جاری و لیست failover (در runtime پر می‌شود)
+MODEL_POOL = []
+MODEL_IDX = 0
 
 
 def log(*a):
     print(*a, flush=True)
 
 
-def http_req(url, payload=None, key=None, tries=4):
+def http_req(url, payload=None, key=None, tries=5):
     body = json.dumps(payload).encode() if payload is not None else None
     last = ''
+    backoff = [15, 30, 45, 60, 60]
     for a in range(tries):
         req = urllib.request.Request(url, data=body, headers={
             'Content-Type': 'application/json', 'x-goog-api-key': key})
@@ -39,13 +49,14 @@ def http_req(url, payload=None, key=None, tries=4):
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors='replace')[:400]
             last = f'HTTP {e.code}: {detail}'
-            if e.code in (429, 500, 503):
-                time.sleep(10 * (a + 1))
+            if e.code in (429, 500, 503) and a < tries - 1:
+                time.sleep(backoff[a])
                 continue
             raise RuntimeError(last)
         except Exception as e:
             last = str(e)
-            time.sleep(10 * (a + 1))
+            if a < tries - 1:
+                time.sleep(backoff[a])
     raise RuntimeError(f'failed after retries: {last}')
 
 
@@ -101,22 +112,44 @@ def tts_pcm(text, voice, style, key, model):
     raise RuntimeError(last_err or 'TTS failed')
 
 
+def tts_failover(text, voice, style, key):
+    """با مدل جاری تلاش؛ اگر سهمیه/خطا پایدار بود → مدل بعدی در استخر"""
+    global MODEL_IDX
+    last_err = ''
+    for mi in range(MODEL_IDX, len(MODEL_POOL)):
+        m = MODEL_POOL[mi]
+        try:
+            pcm, rate = tts_pcm(text, voice, style, key, m)
+            MODEL_IDX = mi
+            return pcm, rate
+        except RuntimeError as e:
+            last_err = str(e)
+            log(f'   [failover] {m} -> {last_err[:90]}')
+            if '429' in last_err or 'quota' in last_err.lower():
+                continue
+            raise
+    raise RuntimeError(f'همه مدل‌ها جواب ندادند: {last_err[:150]}')
+
+
 def probe_model(key, voice):
     env_m = os.environ.get('TTS_MODEL')
-    cands = ([env_m] if env_m else []) + discover_tts_models(key) + STATIC_CANDS
-    seen, tried = set(), []
-    for m in cands:
-        if m in seen:
-            continue
-        seen.add(m)
+    discovered = discover_tts_models(key)
+    ordered = [m for m in PREFERRED if m in discovered or env_m == m]
+    ordered += [m for m in discovered if m not in ordered]
+    if env_m and env_m not in ordered:
+        ordered.insert(0, env_m)
+    global MODEL_POOL, MODEL_IDX
+    MODEL_POOL = ordered or PREFERRED
+    MODEL_IDX = 0
+    for m in MODEL_POOL:
         try:
             pcm, rate = tts_pcm(PROBE_TEXT, voice, '', key, m)
             log(f'TTS model OK: {m} ({rate}Hz, {len(pcm)} bytes)')
+            MODEL_IDX = MODEL_POOL.index(m)
             return m
         except RuntimeError as e:
-            tried.append(f'{m}: {str(e)[:110]}')
             log(f'  model {m} -> {str(e)[:110]}')
-    raise RuntimeError('هیچ مدل TTS کار نکرد:\n' + '\n'.join(tried))
+    raise RuntimeError('هیچ مدل TTS کار نکرد')
 
 
 # ---------------- شکستن متن ----------------
@@ -124,7 +157,7 @@ def split_chunks(text):
     parts = re.split(r'(?<=[.؟!])\s+', text.strip())
     out = []
     for p in parts:
-        if len(p.split()) <= 16:
+        if len(p.split()) <= MAX_WORDS:
             out.append(p)
             continue
         toks = [t for t in re.split(r'(،|؛)', p) if t and t.strip()]
@@ -140,7 +173,7 @@ def split_chunks(text):
             pieces.append(cur.strip())
         merged = []
         for pc in pieces:
-            if merged and len((merged[-1] + ' ' + pc).split()) <= 16:
+            if merged and len((merged[-1] + ' ' + pc).split()) <= MAX_WORDS:
                 merged[-1] += ' ' + pc
             else:
                 merged.append(pc)
@@ -178,11 +211,12 @@ def build_seg_audio(cfg, seg, key, model):
     log(f"   {seg['id']}: {len(chunks)} chunks")
     tmp_files = []
     for i, ch in enumerate(chunks):
-        pcm, rate = tts_pcm(ch, voice, style, key, model)
+        pcm, rate = tts_failover(ch, voice, style, key)
         t = os.path.join(OUT, f"{seg['id']}_c{i}.wav")
         raw_to_wav(pcm, rate, t)
         tmp_files.append(t)
-        time.sleep(0.8)
+        if i < len(chunks) - 1:
+            time.sleep(CHUNK_SLEEP)
     # اتصال با wave
     with wave.open(out, 'wb') as w:
         w.setnchannels(1)
@@ -283,6 +317,8 @@ def main():
         sys.exit('GEMINI_API_KEY تنظیم نشده است')
 
     model = 'fake' if fake else probe_model(key, cfg.get('voice', 'Kore'))
+    if fake:
+        MODEL_POOL.append('fake')
 
     log('1) TTS ...')
     audios = [build_seg_audio(cfg, s, key, model) for s in segs]
