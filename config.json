@@ -6,8 +6,8 @@
   "GEMINI_MODEL": "gemini-3.8-flash",
   "WINDOW_SECONDS": 3600,
   "POLL_INTERVAL_SECONDS": 300,
-  "MAX_POSTS_PER_CYCLE": 3,
-  "MAX_POSTS_PER_HOUR": 8,
+  "MAX_POSTS_PER_CYCLE": 5,
+  "MAX_POSTS_PER_HOUR": 15,
   "HEADER_TEXT": "فراتیتر | روایتی معتبر از اخبار روز",
   "FOOTER_TAG": "@Faratitrenews",
   "ARCHIVE_FILE": "archive.json",
@@ -96,65 +96,39 @@
     "olympic"
   ],
   "SOURCES": [
-    {
-      "name": "Al Jazeera",
-      "url": "https://www.aljazeera.com/xml/rss/all.xml",
-      "googleNews": false
-    },
-    {
-      "name": "New York Post",
-      "url": "https://nypost.com/feed/",
-      "googleNews": false
-    },
-    {
-      "name": "Al-Monitor",
-      "url": "https://www.al-monitor.com/rss",
-      "googleNews": false
-    },
-    {
-      "name": "Middle East Monitor",
-      "url": "https://www.middleeastmonitor.com/feed/",
-      "googleNews": false
-    },
-    {
-      "name": "Responsible Statecraft",
-      "url": "https://responsiblestatecraft.com/feed",
-      "googleNews": false
-    },
-    {
-      "name": "Just Security",
-      "url": "https://www.justsecurity.org/feed/",
-      "googleNews": false
-    },
-    {
-      "name": "The Jerusalem Post",
-      "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx",
-      "googleNews": false
-    },
-    {
-      "name": "Arab News",
-      "url": "https://news.google.com/rss/search?q=site:arabnews.com+when:2h&hl=en-US&gl=US&ceid=US:en",
-      "googleNews": true
-    },
-    {
-      "name": "The Washington Post",
-      "url": "https://news.google.com/rss/search?q=site:washingtonpost.com+(Israel+OR+Iran+OR+Gaza+OR+%22Middle+East%22+OR+Syria+OR+Lebanon+OR+Iraq+OR+Yemen+OR+Saudi+OR+Turkey)+when:2h&hl=en-US&gl=US&ceid=US:en",
-      "googleNews": true
-    },
-    {
-      "name": "Middle East Eye",
-      "url": "https://news.google.com/rss/search?q=site:middleeasteye.net+when:2h&hl=en-US&gl=US&ceid=US:en",
-      "googleNews": true
-    },
-    {
-      "name": "Ynetnews",
-      "url": "https://news.google.com/rss/search?q=site:ynetnews.com+when:2h&hl=en-US&gl=US&ceid=US:en",
-      "googleNews": true
-    },
-    {
-      "name": "The Times of Israel",
-      "url": "https://news.google.com/rss/search?q=site:timesofisrael.com+when:2h&hl=en-US&gl=US&ceid=US:en",
-      "googleNews": true
-    }
+    { "name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml", "googleNews": false },
+    { "name": "New York Post", "url": "https://nypost.com/feed/", "googleNews": false },
+    { "name": "Al-Monitor", "url": "https://www.al-monitor.com/rss", "googleNews": false },
+    { "name": "Middle East Monitor", "url": "https://www.middleeastmonitor.com/feed/", "googleNews": false },
+    { "name": "Responsible Statecraft", "url": "https://responsiblestatecraft.com/feed", "googleNews": false },
+    { "name": "Just Security", "url": "https://www.justsecurity.org/feed/", "googleNews": false },
+    { "name": "The Jerusalem Post", "url": "https://www.jpost.com/rss/rssfeedsmiddleeastnews.aspx", "googleNews": false },
+    { "name": "Arab News", "url": "https://news.google.com/rss/search?q=site:arabnews.com+when:2h&hl=en-US&gl=US&ceid=US:en", "googleNews": true },
+    { "name": "The Washington Post", "url": "https://news.google.com/rss/search?q=site:washingtonpost.com+(Israel+OR+Iran+OR+Gaza+OR+%22Middle+East%22+OR+Syria+OR+Lebanon+OR+Iraq+OR+Yemen+OR+Saudi+OR+Turkey)+when:2h&hl=en-US&gl=US&ceid=US:en", "googleNews": true },
+    { "name": "Middle East Eye", "url": "https://news.google.com/rss/search?q=site:middleeasteye.net+when:2h&hl=en-US&gl=US&ceid=US:en", "googleNews": true },
+    { "name": "Ynetnews", "url": "https://news.google.com/rss/search?q=site:ynetnews.com+when:2h&hl=en-US&gl=US&ceid=US:en", "googleNews": true },
+    { "name": "The Times of Israel", "url": "https://news.google.com/rss/search?q=site:timesofisrael.com+when:2h&hl=en-US&gl=US&ceid=US:en", "googleNews": true },
+    { "name": "SdArabia", "url": "https://sdarabia.com/feed/", "googleNews": false },
+    { "name": "The Atlantic", "url": "https://feeds.feedburner.com/TheAtlantic", "googleNews": false },
+    { "name": "Flightradar24 Blog", "url": "https://www.flightradar24.com/blog/feed/", "googleNews": false },
+    { "name": "Task & Purpose", "url": "https://taskandpurpose.com/feed/", "googleNews": false },
+    { "name": "The Defence Blog", "url": "https://defence-blog.com/feed/", "googleNews": false },
+    { "name": "USNI News", "url": "https://news.usni.org/feed", "googleNews": false },
+    { "name": "Guardian Iran", "url": "https://www.theguardian.com/world/iran/rss", "googleNews": false },
+    { "name": "WAVY Military", "url": "https://www.wavy.com/news/military/feed/", "googleNews": false },
+    { "name": "Ynet Hebrew", "url": "https://www.ynet.co.il/Integration/StoryRss3082.xml", "googleNews": false },
+    { "name": "Naval News", "url": "https://www.navalnews.com/feed/", "googleNews": false },
+    { "name": "Asian Military Review", "url": "https://www.asianmilitaryreview.com/feed/", "googleNews": false },
+    { "name": "RealClearDefense", "url": "https://www.realcleardefense.com/articles/index.xml", "googleNews": false },
+    { "name": "Defense One", "url": "https://www.defenseone.com/rss/all/", "googleNews": false },
+    { "name": "Axios", "url": "https://api.axios.com/feed/", "googleNews": false },
+    { "name": "AIRLIVE", "url": "https://airlive.net/feed/", "googleNews": false },
+    { "name": "Haaretz ME", "url": "https://www.haaretz.com/srv/middle-east-news-rss", "googleNews": false },
+    { "name": "TWZ", "url": "https://www.twz.com/feed", "googleNews": false },
+    { "name": "Forbes Business", "url": "https://www.forbes.com/business/feed2/", "googleNews": false },
+    { "name": "ABC News AU", "url": "https://www.abc.net.au/news/feed/46182/rss.xml", "googleNews": false },
+    { "name": "Military.com", "url": "https://www.military.com/feed/daily-news/", "googleNews": false },
+    { "name": "Breaking Defense", "url": "https://breakingdefense.com/feed/", "googleNews": false },
+    { "name": "Defense News", "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml", "googleNews": false }
   ]
 }
