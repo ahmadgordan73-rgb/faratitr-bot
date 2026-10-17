@@ -1,0 +1,160 @@
+{
+  "BOT_TOKEN": "",
+  "CHANNEL_ID": "@FARATIE",
+  "ENGINE": "sandbox",
+  "GEMINI_API_KEY": "",
+  "GEMINI_MODEL": "gemini-3.8-flash",
+  "WINDOW_SECONDS": 3600,
+  "POLL_INTERVAL_SECONDS": 300,
+  "MAX_POSTS_PER_CYCLE": 3,
+  "MAX_POSTS_PER_HOUR": 8,
+  "HEADER_TEXT": "فراتیتر | روایتی معتبر از اخبار روز",
+  "FOOTER_TAG": "@Faratitrenews",
+  "ARCHIVE_FILE": "archive.json",
+  "KEYWORDS_INCLUDE": [
+    "middle east",
+    "israel",
+    "israeli",
+    "palestin",
+    "gaza",
+    "west bank",
+    "jerusalem",
+    "iran",
+    "iranian",
+    "tehran",
+    "hezbollah",
+    "hamas",
+    "houthi",
+    "yemen",
+    "lebanon",
+    "lebanese",
+    "syria",
+    "syrian",
+    "iraq",
+    "iraqi",
+    "turkey",
+    "turkish",
+    "erdogan",
+    "saudi",
+    "arabia",
+    "uae",
+    "qatar",
+    "egypt",
+    "jordan",
+    "tel aviv",
+    "netanyahu",
+    "idf",
+    "mossad",
+    "arab",
+    "gulf",
+    "hormuz",
+    "red sea",
+    "suez",
+    "nuclear",
+    "missile",
+    "drone strike",
+    "drone attack",
+    "airstrike",
+    "military",
+    "war",
+    "sanction",
+    "trump",
+    "pentagon",
+    "state department",
+    "white house",
+    "ukraine",
+    "russia",
+    "putin",
+    "nato",
+    "united nations",
+    "security council",
+    "ceasefire",
+    "embassy",
+    "terror",
+    "diplomat",
+    "foreign minister",
+    "defense minister",
+    "foreign policy",
+    "occupation",
+    "settler"
+  ],
+  "KEYWORDS_EXCLUDE": [
+    "sport",
+    "nfl",
+    "nba",
+    "nhl",
+    "mlb",
+    "soccer",
+    "hollywood",
+    "celebrity",
+    "movie",
+    "box office",
+    "fashion",
+    "lottery",
+    "horoscope",
+    "recipe",
+    "olympic"
+  ],
+  "SOURCES": [
+    {
+      "name": "Al Jazeera",
+      "url": "https://www.aljazeera.com/xml/rss/all.xml",
+      "googleNews": false
+    },
+    {
+      "name": "New York Post",
+      "url": "https://nypost.com/feed/",
+      "googleNews": false
+    },
+    {
+      "name": "Al-Monitor",
+      "url": "https://www.al-monitor.com/rss",
+      "googleNews": false
+    },
+    {
+      "name": "Middle East Monitor",
+      "url": "https://www.middleeastmonitor.com/feed/",
+      "googleNews": false
+    },
+    {
+      "name": "Responsible Statecraft",
+      "url": "https://responsiblestatecraft.com/feed",
+      "googleNews": false
+    },
+    {
+      "name": "Just Security",
+      "url": "https://www.justsecurity.org/feed/",
+      "googleNews": false
+    },
+    {
+      "name": "The Jerusalem Post",
+      "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx",
+      "googleNews": false
+    },
+    {
+      "name": "Arab News",
+      "url": "https://news.google.com/rss/search?q=site:arabnews.com+when:2h&hl=en-US&gl=US&ceid=US:en",
+      "googleNews": true
+    },
+    {
+      "name": "The Washington Post",
+      "url": "https://news.google.com/rss/search?q=site:washingtonpost.com+(Israel+OR+Iran+OR+Gaza+OR+%22Middle+East%22+OR+Syria+OR+Lebanon+OR+Iraq+OR+Yemen+OR+Saudi+OR+Turkey)+when:2h&hl=en-US&gl=US&ceid=US:en",
+      "googleNews": true
+    },
+    {
+      "name": "Middle East Eye",
+      "url": "https://news.google.com/rss/search?q=site:middleeasteye.net+when:2h&hl=en-US&gl=US&ceid=US:en",
+      "googleNews": true
+    },
+    {
+      "name": "Ynetnews",
+      "url": "https://news.google.com/rss/search?q=site:ynetnews.com+when:2h&hl=en-US&gl=US&ceid=US:en",
+      "googleNews": true
+    },
+    {
+      "name": "The Times of Israel",
+      "url": "https://news.google.com/rss/search?q=site:timesofisrael.com+when:2h&hl=en-US&gl=US&ceid=US:en",
+      "googleNews": true
+    }
+  ]
+}
