@@ -39,7 +39,7 @@ def log(*a):
 def http_req(url, payload=None, key=None, tries=3):
     body = json.dumps(payload).encode() if payload is not None else None
     last = ''
-    backoff = [20, 40, 60]
+    backoff = [8, 15]
     for a in range(tries):
         req = urllib.request.Request(url, data=body, headers={
             'Content-Type': 'application/json', 'x-goog-api-key': key})
@@ -113,21 +113,24 @@ def tts_pcm(text, voice, style, key, model):
 
 
 def tts_failover(text, voice, style, key):
-    """با مدل جاری تلاش؛ اگر سهمیه/خطا پایدار بود → مدل بعدی در استخر"""
+    """چرخه صبور: دور ۱ بدون صبر، دور ۲ و ۳ با مکث بین مدل‌ها (بازیابی سهمیه RPM)"""
     global MODEL_IDX
     last_err = ''
-    for mi in range(MODEL_IDX, len(MODEL_POOL)):
-        m = MODEL_POOL[mi]
-        try:
-            pcm, rate = tts_pcm(text, voice, style, key, m)
-            MODEL_IDX = mi
-            return pcm, rate
-        except RuntimeError as e:
-            last_err = str(e)
-            log(f'   [failover] {m} -> {last_err[:90]}')
-            if '429' in last_err or 'quota' in last_err.lower():
-                continue
-            raise
+    for cycle in range(3):
+        for mi in range(len(MODEL_POOL)):
+            m = MODEL_POOL[mi]
+            if cycle > 0:
+                time.sleep(45)
+            try:
+                pcm, rate = tts_pcm(text, voice, style, key, m)
+                MODEL_IDX = mi
+                return pcm, rate
+            except RuntimeError as e:
+                last_err = str(e)
+                log(f'   [cycle{cycle+1}] {m} -> {last_err[:80]}')
+                if '429' in last_err or 'quota' in last_err.lower():
+                    continue
+                raise
     raise RuntimeError(f'همه مدل‌ها جواب ندادند: {last_err[:150]}')
 
 
@@ -206,29 +209,9 @@ def build_seg_audio(cfg, seg, key, model):
         return out
     voice = cfg.get('voice', 'Kore')
     style = cfg.get('style', '')
-    pause = b'\x00\x00' * int(SR * cfg.get('chunk_pause', 0.35))
-    chunks = split_chunks(seg['text'])
-    log(f"   {seg['id']}: {len(chunks)} chunks")
-    tmp_files = []
-    for i, ch in enumerate(chunks):
-        pcm, rate = tts_failover(ch, voice, style, key)
-        t = os.path.join(OUT, f"{seg['id']}_c{i}.wav")
-        raw_to_wav(pcm, rate, t)
-        tmp_files.append(t)
-        if i < len(chunks) - 1:
-            time.sleep(CHUNK_SLEEP)
-    # اتصال با wave
-    with wave.open(out, 'wb') as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SR)
-        for i, t in enumerate(tmp_files):
-            with wave.open(t, 'rb') as r:
-                w.writeframes(r.readframes(r.getnframes()))
-            if i < len(tmp_files) - 1:
-                w.writeframes(pause)
-    for t in tmp_files:
-        os.remove(t)
+    # کل بخش = یک درخواست (Gemini خودش مکث جمله‌ها را طبیعی می‌گذارد؛ ۱۱ درخواست کل)
+    pcm, rate = tts_failover(seg['text'], voice, style, key)
+    raw_to_wav(pcm, rate, out)
     return out
 
 
