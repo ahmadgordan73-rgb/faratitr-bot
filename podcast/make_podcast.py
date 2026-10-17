@@ -24,8 +24,8 @@ PREFERRED = ['gemini-3.8-flash-tts', 'gemini-3.1-flash-tts-preview',
              'gemini-2.5-pro-preview-tts']
 PROBE_TEXT = 'این یک پیام آزمایشی برای بررسی کیفیت صدای پادکست است.'
 READER_PREFIX = 'این متن را دقیقا بخوان:\n'
-CHUNK_SLEEP = 3.5          # احترام به سهمیه RPM
-MAX_WORDS = 22             # جمله‌های بلندتر = درخواست کمتر
+CHUNK_SLEEP = 2.0          # احترام به سهمیه RPM
+MAX_WORDS = 30             # جمله‌های بلندتر = درخواست کمتر
 
 # مدل جاری و لیست failover (در runtime پر می‌شود)
 MODEL_POOL = []
@@ -36,10 +36,10 @@ def log(*a):
     print(*a, flush=True)
 
 
-def http_req(url, payload=None, key=None, tries=5):
+def http_req(url, payload=None, key=None, tries=3):
     body = json.dumps(payload).encode() if payload is not None else None
     last = ''
-    backoff = [15, 30, 45, 60, 60]
+    backoff = [20, 40, 60]
     for a in range(tries):
         req = urllib.request.Request(url, data=body, headers={
             'Content-Type': 'application/json', 'x-goog-api-key': key})
