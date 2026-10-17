@@ -29,23 +29,25 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---------- state (anti-duplicate archive + hourly post log) ----------
 const ARCHIVE_PATH = path.join(__dirname, CFG.ARCHIVE_FILE || 'archive.json');
-let archive = { keys: {}, posts: [] };
+let archive = { keys: {}, posts: [], titles: {} };
 function loadArchive() {
   try {
     const d = JSON.parse(fs.readFileSync(ARCHIVE_PATH, 'utf8'));
-    archive = { keys: d.keys || {}, posts: d.posts || [] };
-  } catch { archive = { keys: {}, posts: [] }; }
+    archive = { keys: d.keys || {}, posts: d.posts || [], titles: d.titles || {} };
+  } catch { archive = { keys: {}, posts: [], titles: {} }; }
 }
 function pruneArchive() {
   const cutoff = Date.now() - 3 * 24 * 3600 * 1000; // keep 3 days
   for (const k of Object.keys(archive.keys)) if (archive.keys[k] < cutoff) delete archive.keys[k];
   const hourAgo = Date.now() - 3600 * 1000;
   archive.posts = archive.posts.filter(t => t > hourAgo);
+  const halfDay = Date.now() - 12 * 3600 * 1000; // تیترهای فارسی پست‌شده — ۱۲ ساعت کافی است
+  for (const k of Object.keys(archive.titles || {})) if (archive.titles[k] < halfDay) delete archive.titles[k];
 }
 function saveArchive() {
   try {
     const tmp = ARCHIVE_PATH + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ keys: archive.keys, posts: archive.posts }, null, 1));
+    fs.writeFileSync(tmp, JSON.stringify({ keys: archive.keys, posts: archive.posts, titles: archive.titles }, null, 1));
     fs.renameSync(tmp, ARCHIVE_PATH);
   } catch (e) { log('⚠️ archive save failed:', e.message); }
 }
@@ -58,6 +60,21 @@ function normLink(u) {
     x.search = ''; x.hash = '';
     return (x.host.replace(/^www\./, '') + x.pathname).toLowerCase().replace(/\/+$/, '');
   } catch { return (u || '').slice(0, 120).toLowerCase(); }
+}
+// ددوپ هوشمند: خبرِ هم‌رویداد از دو منبع/زبان مختلف → تیترهای فارسیِ مشابه → رد
+function titleTokens(t) {
+  return new Set((t || '').split(' ').filter(w => w.length >= 3));
+}
+function isNearDupTitle(title) {
+  const toks = titleTokens(normTitle(title));
+  if (toks.size === 0) return false;
+  for (const [prev] of Object.entries(archive.titles || {})) {
+    const p = titleTokens(prev);
+    let common = 0;
+    for (const w of toks) if (p.has(w)) common++;
+    if (common >= 3 && common / Math.min(toks.size, p.size) >= 0.7) return true;
+  }
+  return false;
 }
 
 // ---------- HTTP ----------
@@ -265,9 +282,10 @@ async function translateItem(item) {
       lede = truncateSentence(lede, 700);
       if (lede.length < 50) throw new Error(`bad lede len ${lede.length}`);
       checkPersian(title, lede);
-      // ددوپ تقریبی فارسی: خبار هم‌رویداد با تیترهای متفاوت
+      // ددوپ تقریبی فارسی: خبر هم‌رویداد با تیترهای متفاوت
       const fz = 'f:' + normTitle(title).slice(0, 30);
       if (archive.keys[fz]) throw new Error('duplicate (near-identical Persian title) — skipped');
+      if (isNearDupTitle(title)) throw new Error('duplicate (similar Persian title) — skipped');
       return { title, lede, fz };
     } catch (e) {
       lastErr = e;
@@ -374,6 +392,8 @@ async function runCycle() {
       const k1 = normLink(item.link), k2 = normTitle(item.title);
       archive.keys[k1] = Date.now(); archive.keys['t:' + k2] = Date.now();
       if (tr.fz) archive.keys[tr.fz] = Date.now();
+      const nt = normTitle(tr.title);
+      if (nt) archive.titles[nt] = Date.now();
       archive.posts.push(Date.now());
       saveArchive();
       posted++;
