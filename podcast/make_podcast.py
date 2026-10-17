@@ -2,20 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 پادکست تصویری فراتیتر — تولید با Gemini TTS (برای اجرا روی GitHub Actions)
-مراحل:
-  1) متن هر بخش به جمله‌ها شکسته می‌شود؛ هر جمله با Gemini TTS خوانده می‌شود
-  2) قطعات با مکث به هم می‌چسبند (ماژول wave — بدون هیچ کتابخانه اضافه)
-  3) کارت PNG + صدا → MP4 → ویدیوی نهایی → ارسال ویدیو و صوت به کانال تلگرام
-
-متغیرهای محیطی (از Secrets گیت‌هاب):
-  GEMINI_API_KEY  کلید Gemini
-  BOT_TOKEN       توکن ربات
-  CHANNEL_ID      مثلا @FARATIE
-اختیاری:
-  VOICE=Kore            نام صدا (Zephyr/Puck/Charon/Kore/Fenrir/Leda/Orus/Aoede)
-  TTS_MODEL=...         نام دقیق مدل TTS (اگر خالی، خودکار امتحان می‌کند)
-  SKIP_SEND=1           ارسال به تلگرام انجام نشود (تست)
-  FAKE_TTS=1            به‌جای Gemini سکوت بسازد (تست خط لوله بدون کلید)
+نسخه ۲:
+  - کشف خودکار مدل‌های TTS از ListModels
+  - probe با جمله خبری (نه سلام! که مدل جوابش را می‌دهد)
+  - اگر مدل خواست «جواب» بدهد به‌جای «خواندن» → تلاش با پیشوند «این متن را دقیقا بخوان:»
+  - نرخ نمونه از mimeType خوانده می‌شود و هر chunk با ffmpeg به 24kHz یکنواخت می‌رسد
 """
 import os, sys, json, re, base64, wave, time, subprocess, urllib.request, urllib.error, urllib.parse
 
@@ -25,80 +16,110 @@ SEG_JSON = os.path.join(BASE, 'segments.json')
 OUT = os.path.join(BASE, 'out')
 os.makedirs(OUT, exist_ok=True)
 
-SR = 24000                       # نرخ نمونه‌گیری خروجی Gemini TTS
-API = 'https://generativelanguage.googleapis.com/v1beta/models'
-MODEL_CANDS = ['gemini-2.5-flash-preview-tts',
-               'gemini-2.5-pro-preview-tts',
-               'gemini-2.5-flash-tts']
+SR = 24000
+API = 'https://generativelanguage.googleapis.com/v1beta'
+STATIC_CANDS = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts']
+PROBE_TEXT = 'این یک پیام آزمایشی برای بررسی کیفیت صدای پادکست است.'
+READER_PREFIX = 'این متن را دقیقا بخوان:\n'
 
 
 def log(*a):
     print(*a, flush=True)
 
 
-# ---------------- Gemini TTS ----------------
-def http_json(url, payload, key, tries=4):
-    body = json.dumps(payload).encode()
+def http_req(url, payload=None, key=None, tries=4):
+    body = json.dumps(payload).encode() if payload is not None else None
     last = ''
     for a in range(tries):
         req = urllib.request.Request(url, data=body, headers={
             'Content-Type': 'application/json', 'x-goog-api-key': key})
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=180) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            detail = e.read().decode(errors='replace')[:300]
+            detail = e.read().decode(errors='replace')[:400]
             last = f'HTTP {e.code}: {detail}'
             if e.code in (429, 500, 503):
-                time.sleep(6 * (a + 1))
+                time.sleep(10 * (a + 1))
                 continue
             raise RuntimeError(last)
         except Exception as e:
             last = str(e)
-            time.sleep(6 * (a + 1))
-    raise RuntimeError(f'TTS failed after retries: {last}')
+            time.sleep(10 * (a + 1))
+    raise RuntimeError(f'failed after retries: {last}')
 
 
-def tts_pcm(text, voice, style, key, model):
-    """یک جمله → بایت‌های PCM 16bit mono 24kHz"""
-    if os.environ.get('FAKE_TTS'):
-        return b'\x00\x00' * int(SR * min(4.0, 0.14 * len(text.split())))
+# ---------------- کشف مدل ----------------
+def discover_tts_models(key):
+    try:
+        d = http_req(f'{API}/models?pageSize=1000', key=key)
+        names = [m['name'].split('/')[-1] for m in d.get('models', [])
+                 if 'tts' in m['name'].lower()
+                 and 'generateContent' in m.get('supportedGenerationMethods', [])]
+        log('TTS models seen:', names)
+        return names
+    except Exception as e:
+        log('ListModels failed:', str(e)[:150])
+        return []
+
+
+# ---------------- TTS ----------------
+def tts_once(text, voice, key, model):
     payload = {
-        'contents': [{'parts': [{'text': style + text}]}],
+        'contents': [{'parts': [{'text': text}]}],
         'generationConfig': {
             'responseModalities': ['AUDIO'],
             'speechConfig': {'voiceConfig': {
                 'prebuiltVoiceConfig': {'voiceName': voice}}}
         }
     }
-    d = http_json(f'{API}/{model}:generateContent', payload, key)
-    try:
-        part = d['candidates'][0]['content']['parts'][0]['inlineData']
-        mime = part.get('mimeType', 'audio/L16;rate=24000')
-        if 'rate=24000' not in mime:
-            log(f'   [warn] mimeType: {mime}')
-        return base64.b64decode(part['data'])
-    except Exception:
-        raise RuntimeError('bad TTS response: ' + json.dumps(d)[:300])
+    return http_req(f'{API}/models/{model}:generateContent', payload, key=key)
+
+
+def tts_pcm(text, voice, style, key, model):
+    """خروجی: (pcm_bytes, rate) — با تلاش مجدد اگر مدل بخواهد جواب بدهد"""
+    if os.environ.get('FAKE_TTS'):
+        return b'\x00\x00' * int(SR * min(4.0, 0.14 * len(text.split()))), SR
+    full = style + text
+    last_err = ''
+    for attempt, prefix in enumerate(('', READER_PREFIX)):
+        try:
+            d = tts_once(prefix + full, voice, key, model)
+        except RuntimeError as e:
+            last_err = str(e)
+            if 'tried to generate text' in last_err and attempt == 0:
+                continue
+            raise
+        try:
+            part = d['candidates'][0]['content']['parts'][0]['inlineData']
+            mime = part.get('mimeType', 'audio/L16;rate=24000')
+            m = re.search(r'rate=(\d+)', mime)
+            rate = int(m.group(1)) if m else SR
+            return base64.b64decode(part['data']), rate
+        except Exception:
+            raise RuntimeError('bad TTS response: ' + json.dumps(d)[:300])
+    raise RuntimeError(last_err or 'TTS failed')
 
 
 def probe_model(key, voice):
-    """اولین مدل TTS که با این کلید جواب بدهد"""
     env_m = os.environ.get('TTS_MODEL')
-    cands = [env_m] if env_m else MODEL_CANDS
+    cands = ([env_m] if env_m else []) + discover_tts_models(key) + STATIC_CANDS
+    seen, tried = set(), []
     for m in cands:
-        if not m:
+        if m in seen:
             continue
+        seen.add(m)
         try:
-            tts_pcm('سلام', voice, '', key, m)
-            log(f'TTS model: {m}')
+            pcm, rate = tts_pcm(PROBE_TEXT, voice, '', key, m)
+            log(f'TTS model OK: {m} ({rate}Hz, {len(pcm)} bytes)')
             return m
         except RuntimeError as e:
-            log(f'  model {m} -> {str(e)[:120]}')
-    raise RuntimeError('هیچ مدل TTS با این کلید در دسترس نبود')
+            tried.append(f'{m}: {str(e)[:110]}')
+            log(f'  model {m} -> {str(e)[:110]}')
+    raise RuntimeError('هیچ مدل TTS کار نکرد:\n' + '\n'.join(tried))
 
 
-# ---------------- شکستن متن به جمله‌ها ----------------
+# ---------------- شکستن متن ----------------
 def split_chunks(text):
     parts = re.split(r'(?<=[.؟!])\s+', text.strip())
     out = []
@@ -127,13 +148,22 @@ def split_chunks(text):
     return [o.strip() for o in out if o.strip()]
 
 
-# ---------------- ساخت صدای هر بخش ----------------
-def write_wav(path, pcm):
-    with wave.open(path, 'wb') as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SR)
-        w.writeframes(pcm)
+# ---------------- صدای هر بخش ----------------
+def raw_to_wav(pcm, rate, path):
+    """PCM خام → WAV یکنواخت 24kHz mono (اگر لازم، resample با ffmpeg)"""
+    if rate == SR:
+        with wave.open(path, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SR)
+            w.writeframes(pcm)
+        return
+    raw = path + '.raw'
+    open(raw, 'wb').write(pcm)
+    subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 's16le', '-ar', str(rate),
+                    '-ac', '1', '-i', raw, '-ar', str(SR), '-ac', '1', path],
+                   check=True)
+    os.remove(raw)
 
 
 def build_seg_audio(cfg, seg, key, model):
@@ -146,12 +176,25 @@ def build_seg_audio(cfg, seg, key, model):
     pause = b'\x00\x00' * int(SR * cfg.get('chunk_pause', 0.35))
     chunks = split_chunks(seg['text'])
     log(f"   {seg['id']}: {len(chunks)} chunks")
-    pcm = b''
+    tmp_files = []
     for i, ch in enumerate(chunks):
-        p = tts_pcm(ch, voice, style, key, model)
-        pcm += p + (pause if i < len(chunks) - 1 else b'')
-        time.sleep(0.8)                      # احترام به سهمیه
-    write_wav(out, pcm)
+        pcm, rate = tts_pcm(ch, voice, style, key, model)
+        t = os.path.join(OUT, f"{seg['id']}_c{i}.wav")
+        raw_to_wav(pcm, rate, t)
+        tmp_files.append(t)
+        time.sleep(0.8)
+    # اتصال با wave
+    with wave.open(out, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        for i, t in enumerate(tmp_files):
+            with wave.open(t, 'rb') as r:
+                w.writeframes(r.readframes(r.getnframes()))
+            if i < len(tmp_files) - 1:
+                w.writeframes(pause)
+    for t in tmp_files:
+        os.remove(t)
     return out
 
 
@@ -192,7 +235,7 @@ def build_segment(seg, audio, i, n, gap):
     return out
 
 
-# ---------------- ارسال به تلگرام ----------------
+# ---------------- تلگرام ----------------
 def tg_send(cfg, vid, mp3):
     token = os.environ['BOT_TOKEN']
     channel = os.environ.get('CHANNEL_ID', '@FARATIE')
@@ -220,7 +263,7 @@ def tg_send(cfg, vid, mp3):
     cap_v = cfg.get('caption_video', 'پادکست تصویری فراتیتر\n\n@Faratitrenews')
     okv = run([f'video=@{vid};type=video/mp4', 'supports_streaming=true'],
               [('caption', cap_v)], 'sendVideo', 'sendVideo')
-    if not okv:  # fallback: به‌صورت فایل
+    if not okv:
         run([f'document=@{vid};type=video/mp4'],
             [('caption', cap_v)], 'sendVideo(doc)', 'sendDocument')
     time.sleep(3)
@@ -231,7 +274,6 @@ def tg_send(cfg, vid, mp3):
         'sendAudio', 'sendAudio')
 
 
-# ---------------- main ----------------
 def main():
     cfg = json.load(open(SEG_JSON, encoding='utf-8'))
     segs = cfg['segments']
