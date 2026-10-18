@@ -207,8 +207,9 @@ def build_seg_audio(cfg, seg, key, model):
     if os.path.exists(out) and os.path.getsize(out) > 20000:
         log(f"   {seg['id']}: cached")
         return out
-    voice = cfg.get('voice', 'Kore')
-    style = cfg.get('style', '')
+    # صدای هر سگمنت می‌تواند مستقل باشد (مسابقه صدا) — وگرنه صدای سراسری
+    voice = seg.get('voice') or cfg.get('voice', 'Kore')
+    style = seg.get('style', cfg.get('style', ''))
     # کل بخش = یک درخواست (Gemini خودش مکث جمله‌ها را طبیعی می‌گذارد؛ ۱۱ درخواست کل)
     pcm, rate = tts_failover(seg['text'], voice, style, key)
     raw_to_wav(pcm, rate, out)
@@ -339,6 +340,17 @@ def main():
 
     log('1) TTS ...')
     audios = [build_seg_audio(cfg, s, key, model) for s in segs]
+
+    # حالت مسابقه صدا: فقط TTS، بدون رندر/ارسال — mp3 هر صدا در out/
+    if cfg.get('bakeoff'):
+        log('bakeoff mode: TTS only, no render/send')
+        for s, a in zip(segs, audios):
+            mp3 = os.path.join(OUT, f"voice_{s['id']}.mp3")
+            subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', a,
+                            '-c:a', 'libmp3lame', '-b:a', '128k', mp3], check=True)
+            log(f"voice {s['id']} ({s.get('voice')}): {ffprobe_dur(mp3):.1f}s -> {mp3}")
+        log('DONE')
+        return
 
     log('2) render segments ...')
     gap = cfg.get('gap', 0.55)
