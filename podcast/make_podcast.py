@@ -308,7 +308,24 @@ def tg_send(cfg, vid, mp3):
         'sendAudio', 'sendAudio')
 
 
+def ensure_ffmpeg():
+    """رانرهای جدید اکشنز ffmpeg از پیش ندارند — نصب سریع"""
+    import shutil
+    if shutil.which('ffmpeg') and shutil.which('ffprobe'):
+        return
+    log('ffmpeg/ffprobe یافت نشد → نصب ...')
+    subprocess.run(['sudo', 'apt-get', 'update', '-qq'], check=False)
+    r = subprocess.run(['sudo', 'apt-get', 'install', '-y', '-qq', 'ffmpeg'],
+                       check=False)
+    if r.returncode != 0 or not (shutil.which('ffmpeg') and shutil.which('ffprobe')):
+        raise RuntimeError('نصب ffmpeg ناموفق بود')
+    ver = subprocess.run(['ffmpeg', '-version'], capture_output=True,
+                         text=True).stdout.splitlines()[0]
+    log('ffmpeg آماده:', ver[:60])
+
+
 def main():
+    ensure_ffmpeg()
     cfg = json.load(open(SEG_JSON, encoding='utf-8'))
     segs = cfg['segments']
     key = os.environ.get('GEMINI_API_KEY', '')
