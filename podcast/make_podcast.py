@@ -230,25 +230,42 @@ def build_segment(seg, audio, i, n, gap):
         return out
     dur = ffprobe_dur(audio)
     total = dur + gap
-    vf = '[0:v]format=yuv420p'
+    frames = max(25, int(round(total * 25)))
     af = '[1:a]aresample=44100,apad=pad_dur=0.6'
+    vt = ''   # دنباله فیلترهای ویدیو (fade ها)
     if i == 0:
-        vf += ',fade=t=in:st=0:d=0.7'
+        vt += ',fade=t=in:st=0:d=0.7'
         af += ',afade=t=in:st=0:d=0.5'
     if i == n - 1:
-        vf += f',fade=t=out:st={max(0, total-1.0):.2f}:d=1.0'
+        vt += f',fade=t=out:st={max(0, total-1.0):.2f}:d=1.0'
         af += f',afade=t=out:st={max(0, total-1.2):.2f}:d=1.2'
-    vf += '[v]'
     af += '[a]'
-    cmd = ['ffmpeg', '-y', '-v', 'error', '-loop', '1', '-framerate', '25',
-           '-t', f'{total:.2f}', '-i', card, '-i', audio,
-           '-filter_complex', vf + ';' + af,
-           '-map', '[v]', '-map', '[a]', '-t', f'{total:.2f}', '-r', '25',
-           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-           '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k',
-           '-ar', '44100', '-ac', '2', out]
-    subprocess.run(cmd, check=True)
-    log(f"   seg {seg['id']}: {total:.2f}s")
+    # Ken Burns (زوم آرام ۱ به ۱.۱۶) — اگر خطا خورد، کارت ثابت
+    vf_kb = (f"[0:v]scale=2304:-2,zoompan=z='min(1.0+0.16*on/{frames},1.16)':"
+             f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=25,"
+             f"format=yuv420p{vt}[v]")
+    vf_static = f'[0:v]format=yuv420p{vt}[v]'
+
+    def run_ff(vf, dest):
+        cmd = ['ffmpeg', '-y', '-v', 'error', '-loop', '1', '-framerate', '25',
+               '-t', f'{total:.2f}', '-i', card, '-i', audio,
+               '-filter_complex', vf + ';' + af,
+               '-map', '[v]', '-map', '[a]', '-t', f'{total:.2f}', '-r', '25',
+               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+               '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k',
+               '-ar', '44100', '-ac', '2', dest]
+        return subprocess.run(cmd).returncode
+
+    rc = 1
+    if os.environ.get('KB', '1') != '0':
+        rc = run_ff(vf_kb, out)
+        if rc != 0:
+            log('   zoompan failed -> static card fallback')
+    if rc != 0:
+        rc = run_ff(vf_static, out)
+    if rc != 0:
+        raise RuntimeError(f'render failed: {seg["id"]}')
+    log(f"   seg {seg['id']}: {total:.2f}s (KB={'on' if rc == 0 else '?'})")
     return out
 
 
@@ -337,3 +354,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # سندباکس‌های محدود گاهی بعد از اتمام subprocessها هنگ می‌کنند؛ خروج قاطع
+    sys.stdout.flush()
+    os._exit(0)
