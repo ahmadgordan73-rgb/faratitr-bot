@@ -203,9 +203,18 @@ async function sandboxTranslate(inputText) {
   });
   return completion.choices?.[0]?.message?.content || '';
 }
-async function geminiTranslate(inputText) {
+// زنجیره مدل‌ها: سهمیه رایگان 3.8-flash فقط 20/روز است → مدل‌های پرسهمیه اول
+// (2.5-flash-lite تا ~1000/روز). روی 429 خودکار به بعدی سوییچ می‌شود.
+const GEMINI_CHAIN = (process.env.GEMINI_CHAIN || CFG.GEMINI_CHAIN ||
+  'gemini-2.5-flash-lite,gemini-3.8-flash-lite,gemini-2.5-flash,gemini-3.8-flash')
+  .split(',').map(s => s.trim()).filter(Boolean);
+// اگر GEMINI_MODEL صریح ست شده، اول همان امتحان می‌شود (سازگاری با قبلی)
+const GEMINI_MODEL_ENV = process.env.GEMINI_MODEL || CFG.GEMINI_MODEL;
+const CHAIN = GEMINI_MODEL_ENV ? [GEMINI_MODEL_ENV, ...GEMINI_CHAIN.filter(m => m !== GEMINI_MODEL_ENV)] : GEMINI_CHAIN;
+let chainIdx = 0;   // چسبناک: مدلی که جواب داد در همین ران نگه داشته می‌شود
+
+async function geminiCall(inputText, model) {
   const key = process.env.GEMINI_API_KEY || CFG.GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL || CFG.GEMINI_MODEL || 'gemini-2.5-flash';
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), 60000);
   try {
@@ -218,15 +227,51 @@ async function geminiTranslate(inputText) {
           systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
           contents: [{ parts: [{ text: inputText }] }],
           generationConfig: { temperature: 0.3 },
+          // اخبار جنگ/سیاست نباید فیلتر شوند — آستانه‌ها آزاد
+          safetySettings: [
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          ],
         }),
       }
     );
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${data?.error?.message || ''}`);
+    if (!res.ok) {
+      const e = new Error(`Gemini HTTP ${res.status}: ${data?.error?.message || ''}`);
+      e.status = res.status;
+      throw e;
+    }
     const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('');
-    if (!text) throw new Error('Gemini empty response');
+    if (!text) {
+      const fr = data?.candidates?.[0]?.finishReason;
+      throw new Error('Gemini empty response' + (fr ? ` (${fr})` : ''));
+    }
     return text;
   } finally { clearTimeout(t); }
+}
+
+async function geminiTranslate(inputText) {
+  let lastErr = null;
+  for (let i = 0; i < CHAIN.length; i++) {
+    const idx = (chainIdx + i) % CHAIN.length;
+    const model = CHAIN[idx];
+    try {
+      const out = await geminiCall(inputText, model);
+      chainIdx = idx;   // این مدل کار کرد → بقیه ران همان
+      return out;
+    } catch (e) {
+      lastErr = e;
+      const st = e.status || 0;
+      if ([429, 404, 500, 503].includes(st)) {
+        log(`  · ${model}: HTTP ${st} → fallback${st === 429 ? ' (quota)' : ''}`);
+        continue;       // سهمیه/دردسترس‌نبودن → مدل بعدی
+      }
+      throw e;          // خطای دیگر (شبکه/ Abort): رفتار قبلی
+    }
+  }
+  throw lastErr;
 }
 async function aiTranslate(inputText) {
   if (ENGINE === 'gemini') return geminiTranslate(inputText);
