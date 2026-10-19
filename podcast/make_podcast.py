@@ -373,8 +373,8 @@ def main():
     log(f'video: {video_out} ({os.path.getsize(video_out)//1024} KB, {ffprobe_dur(video_out):.0f}s)')
     log(f'audio: {mp3_out} ({os.path.getsize(mp3_out)//1024} KB)')
 
-    if os.environ.get('SKIP_SEND'):
-        log('SKIP_SEND=1 → ارسال انجام نشد')
+    if os.environ.get('SKIP_SEND') or cfg.get('skip_send'):
+        log('SKIP_SEND → ارسال انجام نشد')
         return
     log('4) send to telegram ...')
     tg_send(cfg, video_out, mp3_out)
