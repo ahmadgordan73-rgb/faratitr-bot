@@ -446,6 +446,13 @@ async function sendPost(text) {
 async function runCycle() {
   log('════ Cycle start ════');
   loadArchive(); pruneArchive();
+  // توزیع سهمیه: حداقل فاصله بین دو پست (پیش‌فرض ۲۵ دقیقه) — مستقل از cron
+  const lastPost = archive.posts.length ? Math.max(...archive.posts) : 0;
+  const minGap = (CFG.MIN_POST_INTERVAL_MIN || 25) * 60000;
+  if (lastPost && Date.now() - lastPost < minGap) {
+    log(`pace: last post ${Math.round((Date.now() - lastPost) / 60000)} min ago → skip cycle (min gap ${CFG.MIN_POST_INTERVAL_MIN || 25} min)`);
+    return;
+  }
   const raw = await fetchAllFeeds();
 
   const seen = new Set();
