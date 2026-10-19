@@ -267,5 +267,6 @@
       "googleNews": false
     }
   ],
-  "GEMINI_CHAIN": "gemini-2.5-flash-lite,gemini-3.8-flash-lite,gemini-2.5-flash,gemini-3.8-flash"
+  "GEMINI_CHAIN": "gemini-2.5-flash-lite,gemini-3.8-flash-lite,gemini-2.5-flash,gemini-3.8-flash",
+  "MIN_POST_INTERVAL_MIN": 25
 }
