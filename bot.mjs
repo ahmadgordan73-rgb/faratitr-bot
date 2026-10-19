@@ -212,6 +212,32 @@ const GEMINI_CHAIN = (process.env.GEMINI_CHAIN || CFG.GEMINI_CHAIN ||
 const GEMINI_MODEL_ENV = process.env.GEMINI_MODEL || CFG.GEMINI_MODEL;
 const CHAIN = GEMINI_MODEL_ENV ? [GEMINI_MODEL_ENV, ...GEMINI_CHAIN.filter(m => m !== GEMINI_MODEL_ENV)] : GEMINI_CHAIN;
 let chainIdx = 0;   // چسبناک: مدلی که جواب داد در همین ران نگه داشته می‌شود
+let chainDead = false; // فیوز: اگر کل زنجیره بی‌سهمیه شد، بقیه آیتم‌ها بی‌تلاش skip
+let DISCOVERED = null;
+
+// کشف مدل‌های مجاز این کلید (بعضی کلیدهای جدید فقط مدل‌های نسل ۳ دارند)
+async function discoverChatModels() {
+  if (DISCOVERED !== null) return DISCOVERED;
+  try {
+    const key = process.env.GEMINI_API_KEY || CFG.GEMINI_API_KEY;
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+                            { headers: { 'x-goog-api-key': key } });
+    const data = await res.json().catch(() => ({}));
+    const names = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => (m.name || '').replace(/^models\//, ''))
+      .filter(n => n && !/tts|embed|image|video|veo|imagen|audio|live|learnlm/i.test(n));
+    // ترجیح: پر‌سهمیه‌ترها اول (lite → latest → 3.1 → 3.8-flash → سایر flash → pro)
+    const pref = (n) => (/flash-lite/.test(n) ? 0 : /flash-latest/.test(n) ? 1
+      : /3\.1/.test(n) ? 2 : /3\.8-flash$/.test(n) ? 3 : /flash/i.test(n) ? 4 : 9);
+    DISCOVERED = names.sort((a, b) => pref(a) - pref(b));
+    log(`  · chat models available: ${DISCOVERED.join(', ') || '(none!)'}`);
+  } catch (e) {
+    log('  · ListModels failed:', String(e.message || e).slice(0, 90));
+    DISCOVERED = [];
+  }
+  return DISCOVERED;
+}
 
 async function geminiCall(inputText, model) {
   const key = process.env.GEMINI_API_KEY || CFG.GEMINI_API_KEY;
@@ -253,10 +279,15 @@ async function geminiCall(inputText, model) {
 }
 
 async function geminiTranslate(inputText) {
+  if (chainDead) throw new Error('Gemini quota cooldown — all models exhausted this run');
+  const disc = await discoverChatModels();
+  const chain = (disc && disc.length)
+    ? (GEMINI_MODEL_ENV ? [GEMINI_MODEL_ENV, ...disc.filter(m => m !== GEMINI_MODEL_ENV)] : disc)
+    : CHAIN;
   let lastErr = null;
-  for (let i = 0; i < CHAIN.length; i++) {
-    const idx = (chainIdx + i) % CHAIN.length;
-    const model = CHAIN[idx];
+  for (let i = 0; i < chain.length; i++) {
+    const idx = (chainIdx + i) % chain.length;
+    const model = chain[idx];
     try {
       const out = await geminiCall(inputText, model);
       chainIdx = idx;   // این مدل کار کرد → بقیه ران همان
@@ -271,6 +302,8 @@ async function geminiTranslate(inputText) {
       throw e;          // خطای دیگر (شبکه/ Abort): رفتار قبلی
     }
   }
+  // هیچ مدلی جواب نداد → اگر سهمیه بود، فیوز را ببند (بقیه ران بی‌شبکه skip)
+  if (String(lastErr?.message || '').includes('429')) chainDead = true;
   throw lastErr;
 }
 async function aiTranslate(inputText) {
@@ -337,6 +370,10 @@ async function translateItem(item) {
       const msg = String(e.message || '');
       if (msg.includes('1301') || msg.includes('contentFilter')) {
         throw new Error('blocked by AI content filter (sensitive topic) — skipped permanently');
+      }
+      // سهمیه/مدل‌ناموجود: تلاش دوم در همین سایکل فایده ندارد — فوری skip
+      if (msg.includes('quota cooldown') || msg.includes('HTTP 429') || msg.includes('HTTP 404')) {
+        throw new Error('no AI capacity (quota/model unavailable) — skipped this cycle');
       }
       log(`  · translate attempt ${attempt} failed: ${msg}`);
       input += '\n\nهشدار: خروجی قبلی نامعتبر بود (کلمه انگلیسی، متن خالی یا قالب اشتباه). این بار فقط JSON معتبر با متن کاملاً فارسی بده.';
